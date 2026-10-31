@@ -8,6 +8,13 @@ export default function Footer() {
         <a href="#faq">FAQ</a>
         <a href="#top">Back to top</a>
       </nav>
+      <p className="footer-disclaimer">
+        <strong>Disclaimer:</strong> This website is a personal, non-commercial portfolio project built
+        solely for educational purposes to demonstrate web development skills. All movie clips, songs,
+        audio tracks, and related imagery are the copyrighted property of their respective film
+        production houses, music labels, and artists. No copyright infringement is intended, and no
+        revenue is generated from this site.
+      </p>
       <p className="footer-owner">Created by Priyanshu Pal</p>
     </footer>
   );
