@@ -1,5 +1,26 @@
+# Dependencies and build output
 node_modules/
+frontend/dist/
 dist/
+
+# Python
 __pycache__/
 *.pyc
 .venv/
+venv/
+
+# Generated demo audio (recreated by backend/synth_tracks.py)
+backend/music/*
+!backend/music/.gitkeep
+
+# Local config, deploy state and logs
+.env
+.env.*
+.vercel/
+*.log
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

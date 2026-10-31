@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: chai-and-rain
-    runtime: docker
-    plan: free
-    healthCheckPath: /api/faq
