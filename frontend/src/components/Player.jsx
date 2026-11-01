@@ -26,6 +26,20 @@ const PREV = "M6 5h2v14H6zM20 5v14L9 12z";
 const NEXT = "M16 5h2v14h-2zM4 5l11 7L4 19z";
 
 let ytPromise;
+
+// One second of silence; looping it keeps a real audio session open so the OS shows lock-screen controls.
+function makeSilentWavUrl() {
+  const rate = 8000;
+  const buf = new ArrayBuffer(44 + rate);
+  const v = new DataView(buf);
+  const tag = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  tag(0, "RIFF"); v.setUint32(4, 36 + rate, true); tag(8, "WAVE"); tag(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  tag(36, "data"); v.setUint32(40, rate, true);
+  new Uint8Array(buf, 44).fill(128);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
 function loadYouTubeApi() {
   if (ytPromise) return ytPromise;
   ytPromise = new Promise((resolve) => {
@@ -41,6 +55,11 @@ function loadYouTubeApi() {
 
 export default function Player({ tracks }) {
   const audioRef = useRef(null);
+  const keepAliveRef = useRef(null);
+  const playingRef = useRef(false);
+  const lastResume = useRef(0);
+  const controls = useRef({});
+  const resume = useRef(() => {});
   const ytRef = useRef(null);
   const ytHost = useRef(null);
   const ytLoaded = useRef("");
@@ -62,6 +81,7 @@ export default function Player({ tracks }) {
   const track = playlist.length ? playlist[index % playlist.length] : undefined;
   const isYT = track?.kind === "youtube";
   const hasYT = tracks.some((t) => t.kind === "youtube");
+  playingRef.current = playing;
 
   const showQuote = useCallback(async () => {
     try {
@@ -130,6 +150,12 @@ export default function Player({ tracks }) {
           onStateChange: (e) => {
             if (e.data === YT.PlayerState.PLAYING) failures.current = 0;
             if (e.data === YT.PlayerState.ENDED) advance.current();
+            // The browser may pause the video when the tab is hidden; ask it to carry on.
+            if (e.data === YT.PlayerState.PAUSED && playingRef.current && document.hidden
+                && Date.now() - lastResume.current > 1500) {
+              lastResume.current = Date.now();
+              e.target.playVideo();
+            }
           },
           onError: (e) => onError.current(e.data),
         },
@@ -191,6 +217,67 @@ export default function Player({ tracks }) {
     setPlaying((p) => !p);
   };
 
+  controls.current = {
+    play: () => { setNotice(""); setPlaying(true); },
+    pause: () => setPlaying(false),
+    step,
+  };
+  resume.current = () => {
+    const yt = ytRef.current;
+    if (playingRef.current && isYT && yt?.getPlayerState?.() === 2) yt.playVideo();
+  };
+
+  // Silent looping audio holds the audio session open while a YouTube song plays.
+  useEffect(() => {
+    const el = keepAliveRef.current;
+    if (!el) return;
+    if (!el.src) el.src = makeSilentWavUrl();
+    if (playing && isYT) el.play().catch(() => {});
+    else el.pause();
+  }, [playing, isYT]);
+
+  // Lock-screen and notification controls.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = track
+      ? new MediaMetadata({
+          title: track.title,
+          artist: track.station,
+          album: "Chai & Rain",
+          artwork: track.thumb ? [{ src: track.thumb, sizes: "320x180", type: "image/jpeg" }] : [],
+        })
+      : null;
+  }, [track]);
+
+  useEffect(() => {
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+  }, [playing]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const set = (action, fn) => {
+      try { navigator.mediaSession.setActionHandler(action, fn); } catch { /* unsupported action */ }
+    };
+    set("play", () => controls.current.play());
+    set("pause", () => controls.current.pause());
+    set("previoustrack", () => controls.current.step(-1));
+    set("nexttrack", () => controls.current.step(1));
+    return () => ["play", "pause", "previoustrack", "nexttrack"].forEach((a) => set(a, null));
+  }, []);
+
+  // Coming back to the tab or unlocking the phone: resume if the browser paused us.
+  useEffect(() => {
+    const onBack = () => { if (!document.hidden) resume.current(); };
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("pageshow", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("pageshow", onBack);
+      window.removeEventListener("focus", onBack);
+    };
+  }, []);
+
   const pct = duration ? (time / duration) * 100 : 0;
 
   return (
@@ -241,6 +328,8 @@ export default function Player({ tracks }) {
         onLoadedMetadata={(e) => !isYT && setDuration(e.currentTarget.duration)}
         onEnded={() => advance.current()}
       />
+
+      <audio ref={keepAliveRef} loop playsInline aria-hidden="true" />
 
       {hasYT && <div className="yt-bridge" aria-hidden="true"><div ref={ytHost} /></div>}
     </div>
